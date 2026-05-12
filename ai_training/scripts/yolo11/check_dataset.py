@@ -22,6 +22,8 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 def iter_images(split: str) -> list[Path]:
     image_dir = DATASET / "images" / split
+    if not image_dir.exists():
+        return []
     return sorted(p for p in image_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS)
 
 
@@ -67,6 +69,9 @@ def main() -> int:
         images = iter_images(split)
         split_counts: Counter[int] = Counter()
 
+        if not images:
+            all_errors.append(f"no images found in {DATASET / 'images' / split}")
+
         for image_path in images:
             label_path = DATASET / "labels" / split / f"{image_path.stem}.txt"
             errors, counts = check_label(label_path)
@@ -78,6 +83,9 @@ def main() -> int:
             print(f"  {class_id} {name}: {split_counts[class_id]} boxes")
 
         label_dir = DATASET / "labels" / split
+        if not label_dir.exists():
+            all_errors.append(f"missing label directory: {label_dir}")
+            continue
         label_stems = {p.stem for p in label_dir.glob("*.txt")}
         image_stems = {p.stem for p in images}
         for extra in sorted(label_stems - image_stems):
