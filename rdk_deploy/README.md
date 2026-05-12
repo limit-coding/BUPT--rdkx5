@@ -17,3 +17,21 @@ ai_training best.pt
 -> update ros2_ws/src/camera/camera/animal_detect_enable.py
 -> colcon build on board
 ```
+
+Current YOLO11 detector deployment is parameterized in:
+
+```text
+ros2_ws/src/camera/camera/animal_detect_enable.py
+```
+
+Default model path on the board:
+
+```text
+/home/sunrise/ros2/diansai/ws/src/camera/resource/yolo11_det.bin
+```
+
+Run:
+
+```bash
+ros2 run camera animal_enable
+```

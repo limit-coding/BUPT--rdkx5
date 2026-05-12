@@ -62,3 +62,35 @@ python scripts/yolo11/check_dataset.py
 ```
 
 The exported ONNX should then be converted to an RDK X5 BPU `.bin` model.
+
+## RDK X5 BPU Conversion
+
+The RTX 5060 detection export is already stored at:
+
+```text
+model_exports/yolo11n_det_synthetic_rtx5060/best.onnx
+```
+
+Prepare the RDK conversion folder:
+
+```bash
+./scripts/rdk/prepare_yolo11_det_convert.sh
+```
+
+Convert with Docker/OpenExplorer:
+
+```bash
+./scripts/rdk/run_yolo11_det_convert_docker.sh
+```
+
+Or start the RDK_ToolChain visual UI:
+
+```bash
+./scripts/rdk/run_rdk_toolchain_gui.sh
+```
+
+The generated detector model is copied to:
+
+```text
+../ros2_ws/src/camera/resource/yolo11_det.bin
+```

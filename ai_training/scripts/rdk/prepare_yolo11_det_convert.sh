@@ -4,7 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-MODEL="${MODEL:-runs/micro_drone/yolo11n_det/weights/best.onnx}"
+DEFAULT_MODEL="model_exports/yolo11n_det_synthetic_rtx5060/best.onnx"
+if [[ ! -f "$DEFAULT_MODEL" ]]; then
+  DEFAULT_MODEL="runs/micro_drone/yolo11n_det/weights/best.onnx"
+fi
+
+MODEL="${MODEL:-$DEFAULT_MODEL}"
 CALIB_COUNT="${CALIB_COUNT:-300}"
 CONVERT_DIR="${CONVERT_DIR:-rdk_convert/yolo11_det}"
 CALIB_DIR="$CONVERT_DIR/calibration_images"
@@ -31,7 +36,7 @@ if [[ -n "${CALIB_LIST:-}" ]]; then
   fi
   grep -Ev '^[[:space:]]*($|#)' "$CALIB_LIST" | head -n "$CALIB_COUNT" > "$tmp_list"
 else
-  CALIB_SOURCE="${CALIB_SOURCE:-datasets/micro_drone_det/images/train datasets/micro_drone_det/images/val}"
+  CALIB_SOURCE="${CALIB_SOURCE:-datasets/micro_drone_det/images/train datasets/micro_drone_det/images/val ../rdk_deploy/camera_check}"
   read -r -a source_dirs <<< "$CALIB_SOURCE"
   existing_dirs=()
   for dir in "${source_dirs[@]}"; do
@@ -65,5 +70,8 @@ done < "$tmp_list"
 echo "Prepared YOLO11 RDK conversion package:"
 echo "  model: $CONVERT_DIR/best.onnx"
 echo "  calibration images: $CALIB_DIR ($i files)"
+if [[ "$i" -lt 50 ]]; then
+  echo "Warning: calibration image count is low. Use 100-300 real board-camera images for better quantization."
+fi
 echo "Next:"
 echo "  ./scripts/rdk/run_yolo11_det_convert_docker.sh"
