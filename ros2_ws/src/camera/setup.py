@@ -25,6 +25,7 @@ setup(
             'animal_show = camera.animal_detect_show:main',
             'animal_enable = camera.animal_detect_enable:main',
             'animal_enable_nopic = camera.animal_detect_enable_nopic:main',
+            'cifar100_cls_enable = camera.cifar100_cls_enable:main',
             'photo = camera.take_photo:main',
         ],
     },

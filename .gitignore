@@ -16,6 +16,9 @@ ai_training/datasets/micro_drone_det/images/**/*.png
 ai_training/datasets/micro_drone_det/labels/**/*.txt
 ai_training/runs/
 ai_training/logs/
+ai_training/rdk_convert/**/best.onnx
+ai_training/rdk_convert/**/calibration_images/
+ai_training/rdk_convert/**/work/
 ai_training/wandb/
 ai_training/*.pt
 ai_training/*.onnx
