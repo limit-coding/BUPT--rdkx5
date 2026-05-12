@@ -99,6 +99,12 @@ After ONNX export, convert to RDK X5 `.bin`, copy it to:
 ros2_ws/src/camera/resource/
 ```
 
+Mac handoff notes for continuing YOLO-to-RDK conversion are in:
+
+```text
+docs/Mac_RDK_X5_YOLO交接.md
+```
+
 Then update `ros2_ws/src/camera/camera/animal_detect_enable.py`:
 
 ```python
