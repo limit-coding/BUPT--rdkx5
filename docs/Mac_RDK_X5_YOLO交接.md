@@ -35,6 +35,13 @@ yolo checks
 ai_training/runs/micro_drone/yolo11n_det/weights/best.pt
 ```
 
+仓库里已经上传了一份同学电脑上训练好的检测模型：
+
+```text
+ai_training/model_exports/yolo11n_det_synthetic_rtx5060/best.pt
+ai_training/model_exports/yolo11n_det_synthetic_rtx5060/best.onnx
+```
+
 导出：
 
 ```bash
@@ -49,6 +56,7 @@ ai_training/runs/micro_drone/yolo11n_det/weights/best.onnx
 ```
 
 如果模型在别的位置，把 `MODEL=` 改成你的 `.pt` 路径。
+如果直接用仓库里已有的 ONNX，可以跳过导出步骤。
 
 ## 4. 准备 RDK 转换包
 
@@ -57,6 +65,16 @@ ai_training/runs/micro_drone/yolo11n_det/weights/best.onnx
 ```bash
 cd ai_training
 MODEL=runs/micro_drone/yolo11n_det/weights/best.onnx \
+CALIB_SOURCE="datasets/micro_drone_det/images/train datasets/micro_drone_det/images/val" \
+CALIB_COUNT=300 \
+./scripts/rdk/prepare_yolo11_det_convert.sh
+```
+
+如果使用仓库里已经上传的 ONNX：
+
+```bash
+cd ai_training
+MODEL=model_exports/yolo11n_det_synthetic_rtx5060/best.onnx \
 CALIB_SOURCE="datasets/micro_drone_det/images/train datasets/micro_drone_det/images/val" \
 CALIB_COUNT=300 \
 ./scripts/rdk/prepare_yolo11_det_convert.sh

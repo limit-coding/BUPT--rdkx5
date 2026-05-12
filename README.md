@@ -84,6 +84,12 @@ YOLO detection data still needs competition-style capture/annotation. Put YOLO i
 ai_training/datasets/micro_drone_det/
 ```
 
+Trained checkpoints and exported ONNX files that are small enough for GitHub are stored in:
+
+```text
+ai_training/model_exports/
+```
+
 Train:
 
 ```bash
