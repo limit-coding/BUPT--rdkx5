@@ -132,21 +132,10 @@ https://github.com/xiongqi123123/RDK_ToolChain
 ros2_ws/src/camera/camera/animal_detect_enable.py
 ```
 
-需要确认三处：
+当前节点已经参数化，默认使用这次 7 类 YOLO11 检测模型：
 
-```python
-model_path = "/home/sunrise/ros2/diansai/ws/src/camera/resource/yolo11_det.bin"
-conf_thres = 0.3
-iou_thres = 0.5
-model = YOLO11_Detect(model_path, conf_thres, iou_thres, 5)
-coco_names = ["peacock", "wolf", "monkey", "elephant", "tiger"]
-```
-
-如果换成比赛目标 7 类，类别名和 `classes_num` 要一起改：
-
-```python
-coco_names = ["picture_target", "special_target", "ring", "obstacle", "landing_h", "red_light", "blue_light"]
-model = YOLO11_Detect(model_path, conf_thres, iou_thres, 7)
+```text
+/home/sunrise/ros2/diansai/ws/src/camera/resource/yolo11_det.bin
 ```
 
 构建运行：
@@ -158,6 +147,16 @@ source /opt/tros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ros2 run camera animal_enable
+```
+
+如果要覆盖参数：
+
+```bash
+ros2 run camera animal_enable --ros-args \
+  -p model_path:=/home/sunrise/ros2/diansai/ws/src/camera/resource/yolo11_det.bin \
+  -p class_names:=picture_target,special_target,ring,obstacle,landing_h,red_light,blue_light \
+  -p conf:=0.3 \
+  -p iou:=0.5
 ```
 
 注意：README 里有些地方写的是 `animal_detect`，当前实际入口是 `animal_enable`。
