@@ -29,6 +29,8 @@ pip install -r requirements-yolo11.txt
 ./scripts/classification/train_cls.sh
 ```
 
+On Apple Silicon Macs, classification training defaults to `DEVICE=mps`. Override with `DEVICE=cpu` if needed.
+
 Quick smoke-test data generation:
 
 ```bash

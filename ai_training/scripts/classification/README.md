@@ -46,6 +46,28 @@ DEVICE=cpu BATCH=16 EPOCHS=5 ./scripts/classification/train_cls.sh
 MODEL=yolo11s-cls.pt NAME=yolo11s_cifar100_cls ./scripts/classification/train_cls.sh
 ```
 
+On Apple Silicon Macs, the default device is `mps`. If MPS is unstable on a machine, use `DEVICE=cpu`.
+
+If the conda environment is not activated, point the scripts at the exact Python executable:
+
+```bash
+PYTHON=/opt/anaconda3/envs/ml/bin/python ./scripts/classification/train_cls.sh
+```
+
+If a wrapper script unexpectedly falls back to CPU, use the exact Ultralytics CLI command that was verified on this Mac:
+
+```bash
+/opt/anaconda3/envs/ml/bin/yolo classify train \
+  model=yolo11n-cls.pt \
+  data=datasets/cifar100_target_cls \
+  imgsz=224 \
+  epochs=20 \
+  batch=32 \
+  device=mps \
+  project=runs/micro_drone \
+  name=yolo11n_cifar100_cls_mps
+```
+
 ## Validate / Predict / Export
 
 ```bash
