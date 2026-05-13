@@ -45,6 +45,9 @@ def generate_launch_description():
         executable='relative_pose_cpp',
         name='relative_pose_node',
         output='screen',
+        parameters=[{
+            'max_relative_meters': 10.0,
+        }],
     )
 
     fc_bridge_node = Node(
@@ -56,6 +59,8 @@ def generate_launch_description():
             'serial_port': '/dev/ttyFC',
             'baudrate': 115200,
             'send_freq': 20.0,
+            'max_xy_meters': 10.0,
+            'clamp_xy_instead_of_zero': True,
         }],
     )
 

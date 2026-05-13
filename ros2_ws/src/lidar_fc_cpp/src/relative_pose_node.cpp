@@ -26,7 +26,7 @@ public:
     max_position_jump_ = declare_parameter<double>("max_position_jump", 5.0);
     max_consecutive_errors_ = declare_parameter<int>("max_consecutive_errors", 5);
     init_max_meters_ = declare_parameter<double>("init_max_meters", 50.0);
-    max_relative_meters_ = declare_parameter<double>("max_relative_meters", 5.0);
+    max_relative_meters_ = declare_parameter<double>("max_relative_meters", 10.0);
     valid_after_sec_ = declare_parameter<double>("valid_after_sec", 2.0);
     odom_timeout_sec_ = declare_parameter<double>("odom_timeout_sec", 1.0);
     use_initial_heading_frame_ = declare_parameter<bool>("use_initial_heading_frame", true);
@@ -153,6 +153,7 @@ private:
 
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
+    refreshRuntimeParameters();
     last_odom_time_ = Clock::now();
     const auto & pos = msg->pose.pose.position;
     const auto & q = msg->pose.pose.orientation;
@@ -298,6 +299,8 @@ private:
 
   void timerCallback()
   {
+    refreshRuntimeParameters();
+
     if (!origin_set_) {
       publishValid(false);
       RCLCPP_WARN(get_logger(), "尚未收到 /Odometry，请确认 FAST_LIO 已启动");
@@ -331,7 +334,7 @@ private:
   double max_position_jump_{5.0};
   int max_consecutive_errors_{5};
   double init_max_meters_{50.0};
-  double max_relative_meters_{5.0};
+  double max_relative_meters_{10.0};
   double valid_after_sec_{2.0};
   double odom_timeout_sec_{1.0};
   bool use_initial_heading_frame_{true};
@@ -368,6 +371,20 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr error_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr valid_pub_;
   rclcpp::TimerBase::SharedPtr log_timer_;
+
+  void refreshRuntimeParameters()
+  {
+    target_x_ = get_parameter("target_x").as_double();
+    target_y_ = get_parameter("target_y").as_double();
+    target_z_ = get_parameter("target_z").as_double();
+    max_position_jump_ = std::max(0.1, get_parameter("max_position_jump").as_double());
+    max_consecutive_errors_ = std::max(
+      1, static_cast<int>(get_parameter("max_consecutive_errors").as_int()));
+    init_max_meters_ = std::max(1.0, get_parameter("init_max_meters").as_double());
+    max_relative_meters_ = std::max(0.1, get_parameter("max_relative_meters").as_double());
+    valid_after_sec_ = std::max(0.0, get_parameter("valid_after_sec").as_double());
+    odom_timeout_sec_ = std::max(0.1, get_parameter("odom_timeout_sec").as_double());
+  }
 };
 
 int main(int argc, char ** argv)

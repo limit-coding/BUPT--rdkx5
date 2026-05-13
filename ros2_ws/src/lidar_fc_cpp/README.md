@@ -39,3 +39,11 @@ ros2 topic hz /Odometry
 ros2 topic hz /relative_pose
 ros2 param get /fc_bridge_node send_freq
 ```
+
+Key safety/tuning parameters:
+
+```bash
+ros2 param set /relative_pose_node max_relative_meters 10.0
+ros2 param set /fc_bridge_node max_xy_meters 10.0
+ros2 param set /fc_bridge_node clamp_xy_instead_of_zero true
+```

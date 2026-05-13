@@ -28,7 +28,8 @@ public:
     port_ = declare_parameter<std::string>("serial_port", "/dev/ttyFC");
     baudrate_ = declare_parameter<int>("baudrate", 115200);
     send_freq_ = declare_parameter<double>("send_freq", 20.0);
-    max_xy_meters_ = declare_parameter<double>("max_xy_meters", 2.0);
+    max_xy_meters_ = declare_parameter<double>("max_xy_meters", 10.0);
+    clamp_xy_instead_of_zero_ = declare_parameter<bool>("clamp_xy_instead_of_zero", true);
     valid_timeout_sec_ = declare_parameter<double>("valid_timeout_sec", 0.5);
 
     tryOpenSerial();
@@ -215,6 +216,8 @@ private:
 
   void sendCallback()
   {
+    refreshRuntimeParameters();
+
     if (fd_ < 0) {
       startReconnectTimer();
       return;
@@ -248,10 +251,16 @@ private:
     }
 
     if (std::fabs(x) > max_xy_meters_ || std::fabs(y) > max_xy_meters_) {
-      zero_reason = "坐标超出安全范围，发送 0cm 心跳帧";
-      x = 0.0;
-      y = 0.0;
-      yaw_deg = 0.0;
+      if (clamp_xy_instead_of_zero_ && valid_recent) {
+        zero_reason = "坐标超出发送范围，已限幅发送";
+        x = std::clamp(x, -max_xy_meters_, max_xy_meters_);
+        y = std::clamp(y, -max_xy_meters_, max_xy_meters_);
+      } else {
+        zero_reason = "坐标超出安全范围，发送 0cm 心跳帧";
+        x = 0.0;
+        y = 0.0;
+        yaw_deg = 0.0;
+      }
     }
 
     const int16_t x_cm = clampToS16(static_cast<int>(x * 100.0));
@@ -309,7 +318,8 @@ private:
   std::string port_{"/dev/ttyFC"};
   int baudrate_{115200};
   double send_freq_{20.0};
-  double max_xy_meters_{2.0};
+  double max_xy_meters_{10.0};
+  bool clamp_xy_instead_of_zero_{true};
   double valid_timeout_sec_{0.5};
   int fd_{-1};
 
@@ -324,6 +334,13 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
   rclcpp::TimerBase::SharedPtr send_timer_;
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
+
+  void refreshRuntimeParameters()
+  {
+    max_xy_meters_ = std::max(0.0, get_parameter("max_xy_meters").as_double());
+    clamp_xy_instead_of_zero_ = get_parameter("clamp_xy_instead_of_zero").as_bool();
+    valid_timeout_sec_ = std::max(0.1, get_parameter("valid_timeout_sec").as_double());
+  }
 };
 
 int main(int argc, char ** argv)
