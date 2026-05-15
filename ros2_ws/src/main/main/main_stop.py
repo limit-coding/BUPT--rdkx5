@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+import json
 import math
 import numpy as np
 
@@ -38,6 +39,10 @@ class main_ctrl(Node):
         self.start_pub = self.create_publisher(String,'/start',10)
 
         self.picture_sub = self.create_subscription(Int32MultiArray, '/pic_cnt', self.pic_callback, 10)
+        self.qr_text_sub = self.create_subscription(String, '/qr_code/text', self.qr_text_callback, 10)
+        self.qr_result_sub = self.create_subscription(String, '/qr_code/result', self.qr_result_callback, 10)
+        self.qr_offset_sub = self.create_subscription(Int32MultiArray, '/qr_code/offset', self.qr_offset_callback, 10)
+        self.vision_detections_sub = self.create_subscription(String, '/vision/detections', self.vision_detections_callback, 10)
         self.goal_sub = self.create_subscription(Position,'goal',self.controller.goal_callback,10)
         
         self.planner_server = self.create_service(Pathplan,'/pathplan_srv',self.pathplan_callback)
@@ -51,6 +56,25 @@ class main_ctrl(Node):
         self.blocks_event = threading.Event()
 
         self.animals=[[],[],[],[],[]]
+        self.target_class_1 = ""
+        self.target_class_2 = ""
+        self.landing_side = ""
+        self.qr_task_ready = False
+        self.qr_offset = [0, 0, 0, 0, 0, 0]
+        self.qr_task_confirm_frames = 3
+        self._qr_candidate_text = ""
+        self._qr_candidate_count = 0
+        self.latest_vision_detections = []
+        self.latest_targets = {
+            'picture_target': [],
+            'special_target': [],
+            'ring': [],
+            'landing_h': [],
+            'red_light': [],
+            'blue_light': [],
+        }
+        self.best_picture_target = None
+        self.best_landing_h = None
 
         # 45度降落参数
         self.safety_threshold = 0.1  # 接近地面的阈值高度(m)
@@ -59,6 +83,152 @@ class main_ctrl(Node):
         self.speed_component = self.constant_total_speed * math.sin(math.pi / 4)
 
         #self.get_logger().info(f"{self.target_pose['x'],self.target_pose['y'],self.target_pose['z'],self.target_pose['yaw']}")
+
+    def parse_qr_task_text(self, text):
+        value = text.strip()
+        if not value:
+            return None
+
+        replacements = {
+            '，': ',',
+            '、': ',',
+            '；': ';',
+            '：': ':',
+            ';': ',',
+            '|': ',',
+            '/': ',',
+            '\\': ',',
+            '[': ' ',
+            ']': ' ',
+            '{': ' ',
+            '}': ' ',
+            '(': ' ',
+            ')': ' ',
+            '"': ' ',
+            "'": ' ',
+            '=': ' ',
+            ':': ' ',
+        }
+        for old, new in replacements.items():
+            value = value.replace(old, new)
+
+        ignored = {
+            'class', 'class1', 'class2', 'target', 'target1', 'target2',
+            'side', 'landing', 'landing_side', 'land', 'qr', 'task',
+        }
+        tokens = []
+        for raw in value.replace(',', ' ').split():
+            token = raw.strip().lower()
+            if token and token not in ignored:
+                tokens.append(token)
+
+        landing_side = ""
+        classes = []
+        for token in tokens:
+            if token in ('left', 'right'):
+                landing_side = token
+            else:
+                classes.append(token)
+
+        if len(classes) < 2 or not landing_side:
+            return None
+        return classes[0], classes[1], landing_side
+
+    def update_qr_task_candidate(self, text):
+        task = self.parse_qr_task_text(text)
+        if task is None:
+            self.get_logger().warn(f"Invalid QR task text: {text}")
+            return
+
+        normalized = f"{task[0]},{task[1]},{task[2]}"
+        if normalized == self._qr_candidate_text:
+            self._qr_candidate_count += 1
+        else:
+            self._qr_candidate_text = normalized
+            self._qr_candidate_count = 1
+
+        if self._qr_candidate_count < self.qr_task_confirm_frames:
+            return
+
+        if (
+            self.qr_task_ready
+            and self.target_class_1 == task[0]
+            and self.target_class_2 == task[1]
+            and self.landing_side == task[2]
+        ):
+            return
+
+        self.target_class_1 = task[0]
+        self.target_class_2 = task[1]
+        self.landing_side = task[2]
+        self.qr_task_ready = True
+        self.get_logger().info(
+            f"QR task confirmed: target_class_1={self.target_class_1}, "
+            f"target_class_2={self.target_class_2}, landing_side={self.landing_side}"
+        )
+
+    def qr_text_callback(self, msg):
+        self.update_qr_task_candidate(msg.data)
+
+    def qr_result_callback(self, msg):
+        try:
+            result = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().warn(f"Invalid QR result JSON: {msg.data}")
+            return
+
+        if result.get('found') and result.get('text'):
+            self.update_qr_task_candidate(str(result['text']))
+
+    def qr_offset_callback(self, msg):
+        self.qr_offset = list(msg.data)
+
+    def vision_detections_callback(self, msg):
+        try:
+            result = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().warn(f"Invalid vision detections JSON: {msg.data}")
+            return
+
+        detections = result.get('detections', [])
+        if not isinstance(detections, list):
+            self.get_logger().warn(f"Invalid vision detections payload: {msg.data}")
+            return
+
+        self.latest_vision_detections = detections
+        for key in self.latest_targets:
+            self.latest_targets[key] = []
+
+        for det in detections:
+            if not isinstance(det, dict):
+                continue
+            class_name = str(det.get('class_name', ''))
+            if class_name in self.latest_targets:
+                self.latest_targets[class_name].append(det)
+
+        self.best_picture_target = self.pick_best_detection(self.latest_targets['picture_target'])
+        self.best_landing_h = self.pick_best_detection(self.latest_targets['landing_h'])
+
+        summary = []
+        for key, values in self.latest_targets.items():
+            if values:
+                summary.append(f"{key}={len(values)}")
+        if summary:
+            self.get_logger().info(
+                f"vision targets: {', '.join(summary)}",
+                throttle_duration_sec=1,
+            )
+
+    def pick_best_detection(self, detections):
+        if not detections:
+            return None
+        return max(
+            detections,
+            key=lambda det: (
+                float(det.get('score', 0.0)),
+                int(det.get('area', 0)),
+            ),
+        )
     
     def path_pub_callback(self):
         self.path_pub.publish(self.path_msg)

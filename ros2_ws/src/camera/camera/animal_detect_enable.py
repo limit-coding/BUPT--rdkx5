@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ import rclpy
 from hobot_dnn import pyeasy_dnn as dnn
 from hobot_vio import libsrcampy as srcampy
 from rclpy.node import Node
-from std_msgs.msg import Int32, Int32MultiArray, MultiArrayDimension
+from std_msgs.msg import Int32, Int32MultiArray, MultiArrayDimension, String
 
 
 DEFAULT_MODEL_PATH = "/home/sunrise/ros2/diansai/ws/src/camera/resource/yolo11_det.bin"
@@ -231,6 +232,7 @@ class AnimalDetectNode(Node):
         self.declare_parameter("publish_empty", False)
         self.declare_parameter("enable_topic", "/pic_enable")
         self.declare_parameter("count_topic", "/pic_cnt")
+        self.declare_parameter("detections_topic", "/vision/detections")
 
         model_path = str(self.get_parameter("model_path").value)
         class_names = parse_names(str(self.get_parameter("class_names").value))
@@ -246,6 +248,7 @@ class AnimalDetectNode(Node):
         camera_index = int(self.get_parameter("camera_index").value)
         enable_topic = str(self.get_parameter("enable_topic").value)
         count_topic = str(self.get_parameter("count_topic").value)
+        detections_topic = str(self.get_parameter("detections_topic").value)
 
         self.detector = Yolo11BpuDetector(
             model_path=model_path,
@@ -260,10 +263,14 @@ class AnimalDetectNode(Node):
         self.enable = 0
         self.lock = threading.Lock()
         self.picture_pub = self.create_publisher(Int32MultiArray, count_topic, 10)
+        self.detections_pub = self.create_publisher(String, detections_topic, 10)
         self.enable_sub = self.create_subscription(Int32, enable_topic, self.enable_callback, 10)
         self.thread = threading.Thread(target=self.loop_task, daemon=True)
         self.thread.start()
-        self.get_logger().info(f"YOLO11 BPU detection ready: classes={self.class_names}")
+        self.get_logger().info(
+            f"YOLO11 BPU detection ready: classes={self.class_names}, "
+            f"publishing detections to {detections_topic}"
+        )
 
     def enable_callback(self, msg: Int32) -> None:
         with self.lock:
@@ -286,9 +293,32 @@ class AnimalDetectNode(Node):
             crop = self._center_crop(frame)
             detections = self.detector.predict(crop)
             counts = [0] * len(self.class_names)
+            detection_items = []
+            crop_h, crop_w = crop.shape[:2]
+            frame_center_x = crop_w // 2
+            frame_center_y = crop_h // 2
             for det in detections:
                 if 0 <= det.class_id < len(counts):
                     counts[det.class_id] += 1
+                x1, y1, x2, y2 = det.bbox
+                center_x = int(round((x1 + x2) / 2.0))
+                center_y = int(round((y1 + y2) / 2.0))
+                class_name = (
+                    self.class_names[det.class_id]
+                    if 0 <= det.class_id < len(self.class_names)
+                    else str(det.class_id)
+                )
+                detection_items.append(
+                    {
+                        "class_id": det.class_id,
+                        "class_name": class_name,
+                        "score": det.score,
+                        "bbox": [x1, y1, x2, y2],
+                        "center": [center_x, center_y],
+                        "offset": [center_x - frame_center_x, center_y - frame_center_y],
+                        "area": max(0, x2 - x1) * max(0, y2 - y1),
+                    }
+                )
                 if self.show:
                     draw_detection(crop, det, self.class_names)
 
@@ -297,6 +327,19 @@ class AnimalDetectNode(Node):
                 msg.layout.dim = [MultiArrayDimension(label="classes", size=len(counts), stride=len(counts))]
                 msg.data = counts
                 self.picture_pub.publish(msg)
+
+            if self.publish_empty or detection_items:
+                msg = String()
+                msg.data = json.dumps(
+                    {
+                        "found": bool(detection_items),
+                        "frame_size": [crop_w, crop_h],
+                        "count": len(detection_items),
+                        "detections": detection_items,
+                    },
+                    ensure_ascii=False,
+                )
+                self.detections_pub.publish(msg)
 
             if detections:
                 summary = ", ".join(f"{self.class_names[i]}={count}" for i, count in enumerate(counts) if count)

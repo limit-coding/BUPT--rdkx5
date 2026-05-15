@@ -59,14 +59,15 @@ def generate_launch_description():
         }],
     )
 
+    # Use the Python QR node by default. The board-side C++ OpenCV build reports
+    # "Library QUIRC is not linked", so qr_detector_cpp cannot decode QR payloads.
     qr_detector_node = Node(
-        package='lidar_fc_cpp',
-        executable='qr_detector_cpp',
-        name='qr_detector_cpp',
+        package='camera',
+        executable='qr_show',
+        name='qr_detector',
         output='screen',
         parameters=[{
             'image_topic': '/image',
-            'confirm_frames': 3,
         }],
     )
 
