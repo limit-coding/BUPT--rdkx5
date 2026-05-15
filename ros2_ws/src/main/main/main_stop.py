@@ -34,9 +34,11 @@ class main_ctrl(Node):
         
 
         self.picenable_pub = self.create_publisher(Int32,'/pic_enable',10)
+        self.qr_enable_pub = self.create_publisher(Int32, '/qr_enable', 10)
         self.animal_pub=self.create_publisher(Animalcnt,'/animals',10)
         self.lock_pub = self.create_publisher(String,'/lock',10)
         self.start_pub = self.create_publisher(String,'/start',10)
+        self.task_status_pub = self.create_publisher(Int32MultiArray, '/task_status', 10)
 
         self.picture_sub = self.create_subscription(Int32MultiArray, '/pic_cnt', self.pic_callback, 10)
         self.qr_text_sub = self.create_subscription(String, '/qr_code/text', self.qr_text_callback, 10)
@@ -50,14 +52,18 @@ class main_ctrl(Node):
         self.path_msg = Path()
         self.path_pub = self.create_publisher(Path,'/path',10)
         self.path_pub_timer = self.create_timer(0.1,self.path_pub_callback)
+        self.task_status_timer = self.create_timer(0.1, self.publish_task_status)
         self.wait_timer = self.create_timer(0.5,self.wait_timeout)
         self.wait_timer.cancel()
 
         self.blocks_event = threading.Event()
 
         self.animals=[[],[],[],[],[]]
+        self.task_state = 0x01
+        self.landing_state = 0x01
         self.target_class_1 = ""
         self.target_class_2 = ""
+        self.target_classes = set()
         self.landing_side = ""
         self.qr_task_ready = False
         self.qr_offset = [0, 0, 0, 0, 0, 0]
@@ -75,6 +81,14 @@ class main_ctrl(Node):
         }
         self.best_picture_target = None
         self.best_landing_h = None
+        self.target_confirm_frames = 3
+        self.target_disappear_frames = 5
+        self.target_max_count = 4
+        self.target_candidate_label = ""
+        self.target_candidate_count = 0
+        self.locked_target_label = ""
+        self.locked_target_missing_count = 0
+        self.recognized_target_count = 0
 
         # 45度降落参数
         self.safety_threshold = 0.1  # 接近地面的阈值高度(m)
@@ -83,6 +97,26 @@ class main_ctrl(Node):
         self.speed_component = self.constant_total_speed * math.sin(math.pi / 4)
 
         #self.get_logger().info(f"{self.target_pose['x'],self.target_pose['y'],self.target_pose['z'],self.target_pose['yaw']}")
+
+    def publish_task_status(self):
+        msg = Int32MultiArray()
+        msg.data = [int(self.task_state), int(self.landing_state)]
+        self.task_status_pub.publish(msg)
+
+    def set_task_status(self, task_state=None, landing_state=None):
+        changed = False
+        if task_state is not None and self.task_state != task_state:
+            self.task_state = int(task_state)
+            changed = True
+        if landing_state is not None and self.landing_state != landing_state:
+            self.landing_state = int(landing_state)
+            changed = True
+        if changed:
+            self.publish_task_status()
+            self.get_logger().info(
+                f"task status updated: task_state=0x{self.task_state:02X}, "
+                f"landing_state=0x{self.landing_state:02X}"
+            )
 
     def parse_qr_task_text(self, text):
         value = text.strip()
@@ -160,8 +194,17 @@ class main_ctrl(Node):
 
         self.target_class_1 = task[0]
         self.target_class_2 = task[1]
+        self.target_classes = {self.target_class_1, self.target_class_2}
         self.landing_side = task[2]
         self.qr_task_ready = True
+        landing_state = 0x02 if self.landing_side == 'left' else 0x03
+        self.set_task_status(task_state=0x02, landing_state=landing_state)
+        msg = Int32()
+        msg.data = 1
+        self.picenable_pub.publish(msg)
+        qr_enable_msg = Int32()
+        qr_enable_msg.data = 0
+        self.qr_enable_pub.publish(qr_enable_msg)
         self.get_logger().info(
             f"QR task confirmed: target_class_1={self.target_class_1}, "
             f"target_class_2={self.target_class_2}, landing_side={self.landing_side}"
@@ -219,6 +262,9 @@ class main_ctrl(Node):
                 throttle_duration_sec=1,
             )
 
+        if self.qr_task_ready:
+            self.update_yolo_task_state(detections)
+
     def pick_best_detection(self, detections):
         if not detections:
             return None
@@ -228,6 +274,84 @@ class main_ctrl(Node):
                 float(det.get('score', 0.0)),
                 int(det.get('area', 0)),
             ),
+        )
+
+    def pick_best_task_detection(self, detections):
+        ignored_classes = {'ring', 'landing_h', 'red_light', 'blue_light', 'obstacle'}
+        candidates = []
+        for det in detections:
+            if not isinstance(det, dict):
+                continue
+            class_name = str(det.get('class_name', '')).strip().lower()
+            if not class_name or class_name in ignored_classes:
+                continue
+            candidates.append(det)
+        return self.pick_best_detection(candidates)
+
+    def update_yolo_task_state(self, detections):
+        best = self.pick_best_task_detection(detections)
+        if best is None:
+            self.handle_no_task_target()
+            return
+
+        label = str(best.get('class_name', '')).strip().lower()
+        if not label:
+            self.handle_no_task_target()
+            return
+
+        if self.locked_target_label:
+            if label == self.locked_target_label:
+                self.locked_target_missing_count = 0
+                return
+            self.locked_target_missing_count += 1
+            if self.locked_target_missing_count < self.target_disappear_frames:
+                return
+            self.clear_target_lock()
+
+        if label == self.target_candidate_label:
+            self.target_candidate_count += 1
+        else:
+            self.target_candidate_label = label
+            self.target_candidate_count = 1
+
+        if self.target_candidate_count < self.target_confirm_frames:
+            return
+
+        self.confirm_new_task_target(label)
+
+    def handle_no_task_target(self):
+        self.target_candidate_label = ""
+        self.target_candidate_count = 0
+        if not self.locked_target_label:
+            return
+        self.locked_target_missing_count += 1
+        if self.locked_target_missing_count >= self.target_disappear_frames:
+            self.clear_target_lock()
+
+    def clear_target_lock(self):
+        self.locked_target_label = ""
+        self.locked_target_missing_count = 0
+        self.target_candidate_label = ""
+        self.target_candidate_count = 0
+
+    def confirm_new_task_target(self, label):
+        if self.recognized_target_count >= self.target_max_count:
+            return
+
+        self.recognized_target_count += 1
+        is_target = label in self.target_classes
+        task_state = 0x03 + (self.recognized_target_count - 1) * 2
+        if not is_target:
+            task_state += 1
+
+        self.set_task_status(task_state=task_state)
+        self.locked_target_label = label
+        self.locked_target_missing_count = 0
+        self.target_candidate_label = ""
+        self.target_candidate_count = 0
+        self.get_logger().info(
+            f"YOLO target confirmed: index={self.recognized_target_count}, "
+            f"label={label}, qr_target={is_target}, task_state=0x{task_state:02X}"
         )
     
     def path_pub_callback(self):
