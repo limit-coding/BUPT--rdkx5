@@ -14,7 +14,7 @@ input_parameters:
 calibration_parameters:
   cal_data_dir: '/data/yolo11_det/calibration_images'
   cal_data_type: 'float32'
-  preprocess: true
+  preprocess_on: true
   calibration_type: 'default'
 
 compiler_parameters:
