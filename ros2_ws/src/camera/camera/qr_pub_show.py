@@ -5,7 +5,7 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Int32MultiArray, String
+from std_msgs.msg import Int32, Int32MultiArray, String
 
 from camera.qr_detector import (
     QrDetection,
@@ -23,6 +23,7 @@ class QrDetectorNode(Node):
         self.declare_parameter("text_topic", "/qr_code/text")
         self.declare_parameter("offset_topic", "/qr_code/offset")
         self.declare_parameter("json_topic", "/qr_code/result")
+        self.declare_parameter("enable_topic", "/qr_enable")
         self.declare_parameter("min_area", 100)
         self.declare_parameter("allow_empty", False)
         self.declare_parameter("log_text", False)
@@ -32,6 +33,7 @@ class QrDetectorNode(Node):
         text_topic = self.get_parameter("text_topic").value
         offset_topic = self.get_parameter("offset_topic").value
         json_topic = self.get_parameter("json_topic").value
+        enable_topic = self.get_parameter("enable_topic").value
         min_area = int(self.get_parameter("min_area").value)
         allow_empty = bool(self.get_parameter("allow_empty").value)
         self.log_text = bool(self.get_parameter("log_text").value)
@@ -40,6 +42,7 @@ class QrDetectorNode(Node):
         self.log_every_frame = bool(self.get_parameter("log_every_frame").value)
         self.frame_count = 0
         self.last_text = ""
+        self.enabled = True
 
         self.text_pub = self.create_publisher(String, text_topic, 10)
         self.offset_pub = self.create_publisher(Int32MultiArray, offset_topic, 10)
@@ -50,13 +53,28 @@ class QrDetectorNode(Node):
             self.image_callback,
             10,
         )
+        self.enable_sub = self.create_subscription(
+            Int32,
+            enable_topic,
+            self.enable_callback,
+            10,
+        )
 
         self.get_logger().info(
             f"QR detector subscribed to {image_topic}; publishing {text_topic}, "
             f"{offset_topic}, {json_topic}"
         )
 
+    def enable_callback(self, msg: Int32) -> None:
+        enabled = msg.data != 0
+        if self.enabled != enabled:
+            self.enabled = enabled
+            self.get_logger().info(f"QR detector enabled={self.enabled}")
+
     def image_callback(self, msg: CompressedImage) -> None:
+        if not self.enabled:
+            return
+
         self.frame_count += 1
         frame = decode_jpeg_bytes(bytes(msg.data))
         if frame is None:

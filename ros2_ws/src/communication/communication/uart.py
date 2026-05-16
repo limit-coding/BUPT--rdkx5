@@ -3,6 +3,7 @@ from interfaces.msg import Position
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import  Int32
+from std_msgs.msg import Int32MultiArray
 from std_msgs.msg import String
 import serial
 import struct
@@ -31,6 +32,10 @@ class SerialCommNode(Node):
 
         self.coords_lock = threading.Lock()  # 坐标数据访问锁
         self.speed_lock = threading.Lock()  # 坐标数据访问锁
+        self.serial_write_lock = threading.Lock()
+        self.task_status_lock = threading.Lock()
+        self.task_state = 0x01
+        self.landing_state = 0x01
         
         self.type_list=[1,4,6,18]
 
@@ -54,6 +59,13 @@ class SerialCommNode(Node):
             '/lock',
             self.lock_callback,
             10)
+
+        self.create_subscription(
+            Int32MultiArray,
+            '/task_status',
+            self.task_status_callback,
+            10)
+        self.task_status_timer = self.create_timer(0.1, self.send_task_status_frame)
         
         # 发布高度数据
         self.height_pub = self.create_publisher(Int32, '/height', 10)#cm   飞控2上位机数据
@@ -113,7 +125,7 @@ class SerialCommNode(Node):
             frame = base_frame + data_bytes + bytes([checksum])
             
             # 发送数据
-            self.ser.write(frame)
+            self.write_serial_frame(frame)
             # self.get_logger().info(
             #     f"定时发送坐标: [{current_coords[0]:.2f}, "
             #     f"{current_coords[1]:.2f}, {current_coords[2]:.2f}]"
@@ -172,11 +184,32 @@ class SerialCommNode(Node):
             # 构造数据帧（自动处理长度）
             try:
                 frame = self._build_frame("lock")  # 即使输入带\0，也会被截断为4字节
-                self.ser.write(frame)
+                self.write_serial_frame(frame)
                 self.get_logger().info(f"发送上锁: {frame.hex(' ')}")
             except Exception as e:
                 self.get_logger().error(f"上锁发送错误: {str(e)}")
 
+    def task_status_callback(self, msg):
+        if len(msg.data) < 2:
+            self.get_logger().warn(f"Invalid task status payload: {list(msg.data)}")
+            return
+
+        with self.task_status_lock:
+            self.task_state = int(msg.data[0]) & 0xFF
+            self.landing_state = int(msg.data[1]) & 0xFF
+
+    def send_task_status_frame(self):
+        with self.task_status_lock:
+            task_state = self.task_state
+            landing_state = self.landing_state
+
+        frame = bytes([0xAA, 0xFF, 0x02, 0x02, task_state, landing_state])
+        checksum = sum(frame) & 0xFF
+        self.write_serial_frame(frame + bytes([checksum]))
+
+    def write_serial_frame(self, frame):
+        with self.serial_write_lock:
+            self.ser.write(frame)
         
 #飞控2上位机
     def serial_rx_task(self):
