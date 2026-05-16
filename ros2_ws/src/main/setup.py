@@ -27,6 +27,7 @@ setup(
             'pid_test = main.pid_test:main',
             'main = main.main:main',
             'main_stop = main.main_stop:main',
+            'task_state_machine = main.task_state_machine:main',
             'test_45 = main.test_45:main',
             'test_45_2 = main.test_45_2:main',
         ],
